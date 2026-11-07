@@ -1,5 +1,7 @@
 # bsky-tiny
 
+[![tests](https://github.com/ichtally/bsky-tiny/actions/workflows/test.yml/badge.svg)](https://github.com/ichtally/bsky-tiny/actions/workflows/test.yml)
+
 A one-file, zero-dependency Bluesky CLI. Python 3.8+, standard library only. Copy `bsky.py` anywhere and run it.
 
 ```
