@@ -16,7 +16,7 @@ https://bsky.app/profile/you.bsky.social/post/3k...
 Most "post to Bluesky in 20 lines" snippets send plain text, so links, @mentions and #tags show up
 unclickable. Bluesky marks those with *facets*, whose positions are **UTF-8 byte offsets**, not
 character offsets. One emoji before a link and naive offsets are wrong. `bsky-tiny` handles that
-(see `parse_facets` and `test_bsky.py`), and stays small enough to read in one sitting (~380 lines of
+(see `parse_facets` and `test_bsky.py`), and stays small enough to read in one sitting (~450 lines of
 code plus a TLD list).
 
 **Same facets as the official app.** `parse_facets` is a port of the detector in `@atproto/api`
@@ -33,7 +33,8 @@ page built on the same rules.
 |---|---|
 | `whoami` | your profile and follower/following/post counts |
 | `post TEXT [--image F --alt A]...` | post with clickable links/mentions/tags; up to 4 images; `-` reads stdin |
-| `reply POST TEXT` | reply (threads correctly to the root) |
+| `post TEXT --card URL` | attach a link preview card (title, description and image from the page's Open Graph tags) |
+| `reply POST TEXT` | reply (threads correctly to the root); takes `--image`/`--card` too |
 | `like POST` · `delete POST` | like a post · delete one of yours |
 | `follow HANDLE` | follow a handle or DID |
 | `timeline [-n N]` · `notifs [-n N]` | home timeline · notifications |
@@ -71,8 +72,12 @@ parse_facets("café ☕ https://example.org #tag")
   emoji sequences, where it errs on the strict side. Same for the 64-grapheme tag limit, which uses
   an approximate grapheme count (only for tags longer than 64 UTF-16 units).
 - Mentions that don't resolve to a DID are left as plain text.
-- No link-card previews, no DMs, no feeds/lists management. PRs welcome if they keep it one file and stdlib-only.
-- Tests (`python3 -m unittest test_bsky`) cover facet parsing offline. The read commands have been run
+- Link cards: posts made through the API get no preview unless the client builds one, so `--card` fetches
+  the page itself (≤2 MB) and its `og:image` (≤1 MB, Bluesky's blob limit; bigger images are skipped,
+  not resized, since there's no image library in the standard library). If the image can't be fetched,
+  the card is posted without one and a note goes to stderr. A post can have images or a card, not both.
+- No DMs, no feeds/lists management. PRs welcome if they keep it one file and stdlib-only.
+- Tests (`python3 -m unittest test_bsky`) cover facet parsing and card parsing offline. The read commands have been run
   against the live API. Posting with facets uses the same record format as the official docs, and
   this note will be updated once it has been exercised in the wild.
 

@@ -9,9 +9,10 @@ Credentials come from the environment (use an app password, not your main passwo
 
 Run `bsky.py -h` for commands. Posts and replies get clickable links, @mentions and #tags.
 """
-import argparse, datetime, json, mimetypes, os, re, sys, unicodedata, urllib.error, urllib.parse, urllib.request
+import argparse, datetime, html.parser, json, mimetypes, os, re, sys, unicodedata
+import urllib.error, urllib.parse, urllib.request
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 PDS = os.environ.get("BSKY_PDS", "https://bsky.social").rstrip("/") + "/xrpc/"
 SESSION_FILE = os.environ.get("BSKY_SESSION_FILE") or os.path.join(
     os.path.expanduser("~"), ".cache", "bsky-tiny", "session.json")
@@ -219,9 +220,83 @@ def upload_images(paths, alts, token):
     return {"$type": "app.bsky.embed.images", "images": imgs}
 
 
-def create_post(s, text, reply=None, images=(), alts=()):
+# ---------- link cards ----------
+# The Bluesky app builds link previews in the client, so a post made through the API has no card unless the
+# client adds an app.bsky.embed.external itself. This reads the page's Open Graph tags, like the app does.
+
+class _Meta(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.meta, self.title, self._in_title = {}, "", False
+
+    def handle_starttag(self, tag, attrs):
+        a = {k.lower(): (v or "") for k, v in attrs}
+        if tag == "meta":
+            key = (a.get("property") or a.get("name") or "").lower()
+            if key and "content" in a and key not in self.meta:  # first one wins
+                self.meta[key] = a["content"].strip()
+        elif tag == "title":
+            self._in_title = True
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+
+    def handle_data(self, d):
+        if self._in_title:
+            self.title += d
+
+
+def parse_card(page_html, url):
+    """Title, description and absolute image URL from a page's og:/twitter:/<title> tags."""
+    p = _Meta()
+    p.feed(page_html)
+    m = p.meta
+    title = m.get("og:title") or m.get("twitter:title") or p.title
+    desc = m.get("og:description") or m.get("twitter:description") or m.get("description") or ""
+    img = m.get("og:image") or m.get("og:image:url") or m.get("twitter:image") or ""
+    return {"title": " ".join(title.split())[:300], "description": " ".join(desc.split())[:1000],
+            "image": urllib.parse.urljoin(url, img) if img else ""}
+
+
+def _fetch(url, limit):
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return r.read(limit + 1), r.headers.get_content_type(), r.headers.get_content_charset() or "utf-8", r.geturl()
+
+
+def link_card(url, token):
+    if not re.match(r"https?://", url):
+        sys.exit("--card needs a full http(s):// URL")
+    try:
+        data, ctype, charset, final = _fetch(url, 2_000_000)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        sys.exit("could not fetch %s for the card: %s" % (url, e))
+    card = {"title": "", "description": "", "image": ""}
+    if ctype in ("text/html", "application/xhtml+xml"):
+        try:
+            text = data.decode(charset, errors="replace")
+        except LookupError:  # unknown charset name in the header
+            text = data.decode("utf-8", errors="replace")
+        card = parse_card(text, final)
+    ext = {"uri": url, "title": card["title"], "description": card["description"]}
+    if card["image"]:
+        try:
+            img, mime, _, _ = _fetch(card["image"], 1_000_000)
+            if len(img) <= 1_000_000 and mime.startswith("image/"):
+                ext["thumb"] = xrpc("POST", "com.atproto.repo.uploadBlob", raw=img, token=token, ctype=mime)["blob"]
+            else:
+                print("note: card image skipped (over 1 MB or not an image)", file=sys.stderr)
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            print("note: card image skipped: %s" % e, file=sys.stderr)
+    return {"$type": "app.bsky.embed.external", "external": ext}
+
+
+def create_post(s, text, reply=None, images=(), alts=(), card=None):
     if len(text) > 300:
         sys.exit("post is %d characters; the limit is 300" % len(text))
+    if images and card:
+        sys.exit("a post can have images or a link card, not both")
     t = s["accessJwt"]
     rec = {"$type": "app.bsky.feed.post", "text": text, "createdAt": now()}
     facets = parse_facets(text, lambda h: resolve_handle(h, t))
@@ -231,6 +306,8 @@ def create_post(s, text, reply=None, images=(), alts=()):
         rec["reply"] = reply
     if images:
         rec["embed"] = upload_images(images, alts, t)
+    if card:
+        rec["embed"] = link_card(card, t)
     r = xrpc("POST", "com.atproto.repo.createRecord",
              body={"repo": s["did"], "collection": "app.bsky.feed.post", "record": rec}, token=t)
     print(web_url(r["uri"], s["handle"]))
@@ -249,14 +326,15 @@ def cmd_whoami(s, a):
 
 
 def cmd_post(s, a):
-    create_post(s, read_text(a.text), images=a.image or (), alts=a.alt or ())
+    create_post(s, read_text(a.text), images=a.image or (), alts=a.alt or (), card=a.card)
 
 
 def cmd_reply(s, a):
     parent = get_post(to_at_uri(a.post, s["accessJwt"]), s["accessJwt"])
     ref = {"uri": parent["uri"], "cid": parent["cid"]}
     root = parent["record"].get("reply", {}).get("root", ref)
-    create_post(s, read_text(a.text), reply={"root": root, "parent": ref}, images=a.image or (), alts=a.alt or ())
+    create_post(s, read_text(a.text), reply={"root": root, "parent": ref}, images=a.image or (), alts=a.alt or (),
+                card=a.card)
 
 
 def cmd_like(s, a):
@@ -352,6 +430,7 @@ def main(argv=None):
         p.add_argument("text")
         p.add_argument("--image", action="append", help="attach an image (repeat up to 4x)")
         p.add_argument("--alt", action="append", help="alt text, one per --image, same order")
+        p.add_argument("--card", metavar="URL", help="attach a link preview for URL (title, text, image from its page)")
     c("like", cmd_like, "like a post").add_argument("post")
     c("delete", cmd_delete, "delete one of your posts").add_argument("post")
     c("follow", cmd_follow, "follow a handle or DID").add_argument("actor")

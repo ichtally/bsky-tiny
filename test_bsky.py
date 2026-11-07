@@ -1,6 +1,6 @@
-"""Offline tests for rich-text facets. Run: python3 -m unittest test_bsky"""
+"""Offline tests for rich-text facets and link cards. Run: python3 -m unittest test_bsky"""
 import unittest
-from bsky import parse_facets
+from bsky import parse_card, parse_facets
 
 
 def spans(text, facets):
@@ -71,6 +71,46 @@ class Facets(unittest.TestCase):
         t = "＃タグ and #tag… and #!!!"
         f = parse_facets(t)
         self.assertEqual(spans(t, f), [("＃タグ", "tag"), ("#tag", "tag")])
+
+
+class Cards(unittest.TestCase):
+    def test_open_graph_tags(self):
+        page = """<html><head><title>Fallback</title>
+          <META property="og:title" content="Caf&eacute; &amp; tools" />
+          <meta property="og:description" content="  Two
+            lines  ">
+          <meta property="og:image" content="/img/card.png"></head><body>x</body></html>"""
+        self.assertEqual(parse_card(page, "https://example.com/a/page.html"), {
+            "title": "Café & tools", "description": "Two lines", "image": "https://example.com/img/card.png"})
+
+    def test_fallbacks(self):
+        page = '<title>\n  Plain title </title><meta name="description" content="d"><meta name="twitter:image" ' \
+               'content="https://cdn.test/i.jpg">'
+        self.assertEqual(parse_card(page, "https://x.test/"),
+                         {"title": "Plain title", "description": "d", "image": "https://cdn.test/i.jpg"})
+
+    def test_first_tag_wins_and_empty_page(self):
+        page = '<meta property="og:title" content="one"><meta property="og:title" content="two">'
+        self.assertEqual(parse_card(page, "https://x.test/")["title"], "one")
+        self.assertEqual(parse_card("", "https://x.test/"), {"title": "", "description": "", "image": ""})
+
+    def test_card_survives_a_failing_image(self):
+        import io, contextlib, urllib.error, bsky
+        page = b'<meta property="og:title" content="T"><meta property="og:image" content="/i.png">'
+
+        def fake_fetch(url, limit):
+            if url.endswith("/i.png"):
+                raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+            return page, "text/html", "utf-8", url
+        real, bsky._fetch = bsky._fetch, fake_fetch
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                emb = bsky.link_card("https://x.test/p", token="unused")
+        finally:
+            bsky._fetch = real
+        self.assertEqual(emb, {"$type": "app.bsky.embed.external",
+                               "external": {"uri": "https://x.test/p", "title": "T", "description": ""}})
+        self.assertIn("card image skipped", err.getvalue())
 
 
 if __name__ == "__main__":
