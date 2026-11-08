@@ -113,5 +113,32 @@ class Cards(unittest.TestCase):
         self.assertIn("card image skipped", err.getvalue())
 
 
+class SelfLabels(unittest.TestCase):
+    PROFILE = {"$type": "app.bsky.actor.profile", "displayName": "Me", "description": "bio",
+               "avatar": {"$type": "blob", "ref": {"$link": "bafk"}, "mimeType": "image/png", "size": 1}}
+
+    def test_add_keeps_everything_else(self):
+        from bsky import set_self_label
+        new = set_self_label(self.PROFILE, "bot")
+        self.assertEqual(new["labels"], {"$type": "com.atproto.label.defs#selfLabels", "values": [{"val": "bot"}]})
+        self.assertEqual({k: v for k, v in new.items() if k != "labels"}, self.PROFILE)
+        self.assertNotIn("labels", self.PROFILE)  # input not modified
+
+    def test_add_twice_and_other_labels(self):
+        from bsky import set_self_label
+        rec = dict(self.PROFILE, labels={"$type": "com.atproto.label.defs#selfLabels",
+                                         "values": [{"val": "!no-unauthenticated"}]})
+        once = set_self_label(rec, "bot")
+        self.assertEqual(set_self_label(once, "bot"), once)
+        self.assertEqual([v["val"] for v in once["labels"]["values"]], ["!no-unauthenticated", "bot"])
+        self.assertEqual(rec["labels"]["values"], [{"val": "!no-unauthenticated"}])
+
+    def test_remove(self):
+        from bsky import set_self_label
+        on = set_self_label(self.PROFILE, "bot")
+        self.assertEqual(set_self_label(on, "bot", on=False), self.PROFILE)  # empty list dropped
+        self.assertEqual(set_self_label(self.PROFILE, "bot", on=False), self.PROFILE)
+
+
 if __name__ == "__main__":
     unittest.main()

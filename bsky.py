@@ -12,7 +12,7 @@ Run `bsky.py -h` for commands. Posts and replies get clickable links, @mentions 
 import argparse, datetime, html.parser, json, mimetypes, os, re, sys, unicodedata
 import urllib.error, urllib.parse, urllib.request
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 PDS = os.environ.get("BSKY_PDS", "https://bsky.social").rstrip("/") + "/xrpc/"
 SESSION_FILE = os.environ.get("BSKY_SESSION_FILE") or os.path.join(
     os.path.expanduser("~"), ".cache", "bsky-tiny", "session.json")
@@ -323,6 +323,9 @@ def cmd_whoami(s, a):
     print("@%s  %s\n%s\nfollowers %s · following %s · posts %s" % (
         p["handle"], p.get("displayName", ""), p.get("description", ""),
         p.get("followersCount"), p.get("followsCount"), p.get("postsCount")))
+    own = sorted({l["val"] for l in p.get("labels") or [] if l.get("src") == s["did"]})
+    if own:
+        print("self-labels: " + ", ".join(own))
 
 
 def cmd_post(s, a):
@@ -363,6 +366,42 @@ def cmd_follow(s, a):
         "repo": s["did"], "collection": "app.bsky.graph.follow",
         "record": {"$type": "app.bsky.graph.follow", "subject": did, "createdAt": now()}})
     print("followed", a.actor)
+
+
+def set_self_label(record, val, on=True):
+    """Return a copy of a profile record with self-label `val` added (on) or removed (off). Other fields
+    and other labels are kept. An empty label list is dropped instead of left behind."""
+    rec = dict(record)
+    labels = dict(rec.get("labels") or {"$type": "com.atproto.label.defs#selfLabels"})
+    values = [v for v in labels.get("values", []) if v.get("val") != val]
+    if on:
+        values.append({"val": val})
+    if values:
+        labels["values"] = values
+        rec["labels"] = labels
+    else:
+        rec.pop("labels", None)
+    return rec
+
+
+def cmd_bot_label(s, a):
+    t = s["accessJwt"]
+    q = {"repo": s["did"], "collection": "app.bsky.actor.profile", "rkey": "self"}
+    try:
+        got = xrpc("GET", "com.atproto.repo.getRecord", q, token=t)
+        old, cid = got["value"], got.get("cid")
+    except BskyError as e:
+        if "RecordNotFound" not in str(e):
+            raise  # anything else: stop, rather than write a blank profile over the real one
+        old, cid = {"$type": "app.bsky.actor.profile"}, None
+    new = set_self_label(old, "bot", on=not a.remove)
+    if new == old:
+        return print("no change: the bot label is already " + ("off" if a.remove else "on"))
+    body = dict(q, record=new)
+    if cid:
+        body["swapRecord"] = cid  # fail instead of overwriting a profile edited meanwhile
+    xrpc("POST", "com.atproto.repo.putRecord", token=t, body=body)
+    print("bot label " + ("removed" if a.remove else "added") + " (profile name, bio and avatar unchanged)")
 
 
 def _list(items, a, fmt):
@@ -434,6 +473,8 @@ def main(argv=None):
     c("like", cmd_like, "like a post").add_argument("post")
     c("delete", cmd_delete, "delete one of your posts").add_argument("post")
     c("follow", cmd_follow, "follow a handle or DID").add_argument("actor")
+    c("bot-label", cmd_bot_label, "mark this account as automated (the 'bot' self-label)").add_argument(
+        "--remove", action="store_true", help="take the label off again")
     for name, fn, h in (("timeline", cmd_timeline, "home timeline"), ("notifs", cmd_notifs, "notifications")):
         c(name, fn, h).add_argument("-n", type=int, default=20)
     p = c("thread", cmd_thread, "show a post and its replies")

@@ -37,12 +37,22 @@ page built on the same rules.
 | `reply POST TEXT` | reply (threads correctly to the root); takes `--image`/`--card` too |
 | `like POST` · `delete POST` | like a post · delete one of yours |
 | `follow HANDLE` | follow a handle or DID |
+| `bot-label [--remove]` | mark the account as automated (see below) |
 | `timeline [-n N]` · `notifs [-n N]` | home timeline · notifications |
 | `thread POST` | a post and its replies, indented |
 | `search QUERY [--sort top\|latest]` · `people QUERY` | search posts · search accounts |
 
 `POST` can be an `at://` URI or a normal `https://bsky.app/profile/.../post/...` link.
 Put `--json` before the command for raw API output: `bsky.py --json notifs`.
+
+## Running a bot? Label it
+
+atproto's [bot guide](https://atproto.com/guides/bot-tutorial) asks automated accounts to put a `bot`
+self-label on their profile, so people and moderation tools can tell. `bsky.py bot-label` does that once.
+It adds `{"val": "bot"}` to the profile record's `labels` and leaves the name, bio, avatar and any other
+labels as they are (`--remove` undoes it). The write uses `swapRecord`, so if the profile changed in the
+meantime it fails instead of overwriting the change. `whoami` shows your self-labels afterwards.
+(Thanks to the Bluesky user who pointed me to this label.)
 
 ## Settings (environment variables)
 
@@ -77,7 +87,8 @@ parse_facets("café ☕ https://example.org #tag")
   not resized, since there's no image library in the standard library). If the image can't be fetched,
   the card is posted without one and a note goes to stderr. A post can have images or a card, not both.
 - No DMs, no feeds/lists management. PRs welcome if they keep it one file and stdlib-only.
-- Tests (`python3 -m unittest test_bsky`) cover facet parsing and card parsing offline. The read commands have been run
+- Tests (`python3 -m unittest test_bsky`) cover facet parsing, card parsing and the label edit offline.
+  `bot-label` has been run live both ways (add, remove, add) on my own account on 2026-11-08. The read commands have been run
   against the live API. Posting has been tested live once (2026-11-08,
   [this post](https://bsky.app/profile/itstally.bsky.social/post/3mzr7prouos2s)): a 🙂 early in the text
   and a `#atproto` tag at the end, whose facet came back at bytes 289–297, exactly the tag (a
