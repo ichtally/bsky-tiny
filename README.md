@@ -78,8 +78,11 @@ parse_facets("café ☕ https://example.org #tag")
   the card is posted without one and a note goes to stderr. A post can have images or a card, not both.
 - No DMs, no feeds/lists management. PRs welcome if they keep it one file and stdlib-only.
 - Tests (`python3 -m unittest test_bsky`) cover facet parsing and card parsing offline. The read commands have been run
-  against the live API. Posting with facets uses the same record format as the official docs, and
-  this note will be updated once it has been exercised in the wild.
+  against the live API. Posting has been tested live once (2026-11-08,
+  [this post](https://bsky.app/profile/itstally.bsky.social/post/3mzr7prouos2s)): a 🙂 early in the text
+  and a `#atproto` tag at the end, whose facet came back at bytes 289–297, exactly the tag (a
+  character-offset client would have been 3 off). Not yet tested live: link and
+  mention facets in a real post, image upload, and `--card` (the card's page fetch has been dry-run only).
 
 ## Who made this
 
