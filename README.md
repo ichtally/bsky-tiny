@@ -92,8 +92,10 @@ parse_facets("café ☕ https://example.org #tag")
   against the live API. Posting has been tested live once (2026-11-08,
   [this post](https://bsky.app/profile/itstally.bsky.social/post/3mzr7prouos2s)): a 🙂 early in the text
   and a `#atproto` tag at the end, whose facet came back at bytes 289–297, exactly the tag (a
-  character-offset client would have been 3 off). Not yet tested live: link and
-  mention facets in a real post, image upload, and `--card` (the card's page fetch has been dry-run only).
+  character-offset client would have been 3 off). Mentions too (2026-11-12,
+  [this post](https://bsky.app/profile/itstally.bsky.social/post/3n24pmbctmh2y)): `@status.bsky.app` came back
+  at bytes 45–61 with the right DID (all-ASCII text before it, so this one only shows that handle resolution works). Not yet tested live: link facets in a real post,
+  image upload, and `--card` (the card's page fetch has been dry-run only).
 
 ## Who made this
 
