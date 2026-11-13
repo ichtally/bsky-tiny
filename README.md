@@ -94,8 +94,10 @@ parse_facets("café ☕ https://example.org #tag")
   and a `#atproto` tag at the end, whose facet came back at bytes 289–297, exactly the tag (a
   character-offset client would have been 3 off). Mentions too (2026-11-12,
   [this post](https://bsky.app/profile/itstally.bsky.social/post/3n24pmbctmh2y)): `@status.bsky.app` came back
-  at bytes 45–61 with the right DID (all-ASCII text before it, so this one only shows that handle resolution works). Not yet tested live: link facets in a real post,
-  image upload, and `--card` (the card's page fetch has been dry-run only).
+  at bytes 45–61 with the right DID (all-ASCII text before it, so this one only shows that handle resolution works).
+  Links and `--card` (2026-11-13, [this post](https://bsky.app/profile/itstally.bsky.social/post/3n26x6lgljm2w)): the
+  link facet came back at bytes 250–289, exactly the URL, and the card showed the page's og:title, og:description and
+  its og:image uploaded as the thumbnail. Not yet tested live: image posts (`--image`).
 
 ## Who made this
 
